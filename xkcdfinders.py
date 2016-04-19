@@ -60,16 +60,21 @@ def evaluate(finder, searches, labeled_data):
     """
     Evaluate the given XkcdFinder by performing searches for each term in the given
     list of searches, and for each search, checking if the resulting comics are found
-    in labeled_data. labeled_data is expected to be a dictionary mapping from the search
-    terms in searches to lists of xkcds that humans have determined to be relevant to
-    each term.
+    in labeled_data. labeled_data is expected to be a dictionary where the keys are
+    xkcd comic numbers and the entries are Python Counter objects, keyed by topic,
+    where a negative value represents a human label of irrelevant, and a positive
+    value represents a human label of relevant.
     """
-    total_comics = 0
-    total_correct = 0
+    total_relevant = 0
+    total_irrelevant = 0
     for search in searches:
         comics = finder.find(search)
         for comic in comics:
-            total_comics += 1
-            if comic in labeled_data[search]:
-                total_correct += 1
-    return total_correct / total_comics
+            if comic in labeled_data and search in labeled_data[comic]:
+                if labeled_data[comic][search] > 0:
+                    total_relevant += 1
+                elif labeled_data[comic][search] < 0:
+                    total_irrelevant += 1
+    print("Total comics found that were relevant: {}".format(total_relevant))
+    print("Total comics found that were irrelevant: {}".format(total_irrelevant))
+    print("Relevance rate: {}".format(total_relevant/(total_relevant+total_irrelevant)))
