@@ -73,7 +73,80 @@ class TextualSearchXkcdFinder(AbstractXkcdFinder):
         results = numpy.argpartition(-scores, self.num_results)[:self.num_results]
         return results + 1
 
-class TfIdfXkcdFinder(AbstractXkcdFinder):
+class VectorSimilarityXkcdFinder(AbstractXkcdFinder):
+    """
+    Abstract base class for XkcdFinder implementations that use a vector space model
+    and cosine similarity to score documents.
+    Provides a common implementation of find, as well as helper functions for using
+    the vector space model to compute the similarity between words.
+    """
+    def find(self, topic):
+        """
+        Find all xkcds with similar words to the given topic.
+        """
+        doc_vectors = numpy.zeros([len(self.word_vectors[0,:]), len(self.xkcds)])
+        scores = numpy.zeros(len(self.xkcds))
+        topic = self.stemmer.stem(topic.lower())
+
+        for i in range(len(self.xkcds)):
+            if self.debug:
+                print("Searching xkcd {} of {}".format(i+1, len(self.xkcds)), end='')
+
+            xkcd_text = self.xkcds[i]
+
+            # compute similarities for each word in the text of the current xkcd
+            for token in word_tokenize(xkcd_text):
+                if re.search("[A-Za-z0-9]", token) is not None:
+                    cur_word = self.stemmer.stem(token.lower())
+                    if cur_word not in self.word_index:
+                        cur_word = "<UNK>"
+                    doc_vectors[:,i] += self.word_vectors[self.word_index[cur_word],:]
+
+            if self.debug:
+                print('\n' if i+1 == len(self.xkcds) else '\r', end='')
+
+        topic_vec = self.word_vectors[self.word_index[topic],:]
+
+        for i in range(len(self.xkcds)):
+            scores[i] = topic_vec.dot(doc_vectors[:,i]) / (numpy.linalg.norm(topic_vec) * numpy.linalg.norm(doc_vectors[:,i]))
+        results = numpy.argpartition(-scores, self.num_results)[:self.num_results]
+        return results + 1
+
+    def similarity(self, word1, word2):
+        """
+        Uses the trained vector space model to compute similarity between two words
+        """
+        word1 = self.stemmer.stem(word1.lower())
+        word2 = self.stemmer.stem(word2.lower())
+        if word1 not in self.word_index:
+            print("Warning: unrecognized word {}".format(word1))
+            word1 = "<UNK>"
+        if word2 not in self.word_index:
+            print("Warning: unrecognized word {}".format(word2))
+            word2 = "<UNK>"
+        return self._stemmed_similarity(word1, word2)
+
+    def _stemmed_similarity(self, word1, word2):
+        index1 = self.word_index[word1]
+        index2 = self.word_index[word2]
+        vector1 = self.word_vectors[index1,:]
+        vector2 = self.word_vectors[index2,:]
+        return vector1.dot(vector2) / (numpy.linalg.norm(vector1) * numpy.linalg.norm(vector2))
+
+    def _build_vocab(self, training_data):
+        """
+        Construct a vocabulary from the given training data
+        """
+        words_encountered = FreqDist()
+        for text in training_data:
+            tokens = word_tokenize(text)
+            words_encountered.update([self.stemmer.stem(word.lower()) for word in tokens if re.search("[A-Za-z0-9]", word) is not None])
+        result = list(v[0] for v in words_encountered.most_common(int(words_encountered.B() * self.vocab_ratio)))
+        # add the unknown word token
+        result.append("<UNK>")
+        return result
+
+class TfIdfXkcdFinder(VectorSimilarityXkcdFinder):
     """
     XkcdFinder implementation which computes an xkcd's relevance score by summing up
     vector similarity between the input query and the string representation of the
@@ -136,85 +209,13 @@ class TfIdfXkcdFinder(AbstractXkcdFinder):
         if self.debug:
             print("Training completed")
 
-    def find(self, topic):
-        """
-        Find all xkcds with similar words to the given topic.
-        """
-        doc_vectors = numpy.zeros([len(self.word_vectors[0,:]), len(self.xkcds)])
-        scores = numpy.zeros(len(self.xkcds))
-        topic = self.stemmer.stem(topic.lower())
-
-        for i in range(len(self.xkcds)):
-            if self.debug:
-                print("Searching xkcd {} of {}".format(i+1, len(self.xkcds)), end='')
-
-            xkcd_text = self.xkcds[i]
-            words_considered = 0
-
-            # compute similarities for each word in the text of the current xkcd
-            for token in word_tokenize(xkcd_text):
-                if re.search("[A-Za-z0-9]", token) is not None:
-                    cur_word = self.stemmer.stem(token.lower())
-                    if cur_word not in self.word_index:
-                        cur_word = "<UNK>"
-                    #scores[i] += self._stemmed_similarity(topic, cur_word)
-                    doc_vectors[:,i] += self.word_vectors[self.word_index[cur_word],:]
-                    words_considered += 1
-
-            # to avoid wrongly preferring longer xkcds, we normalize by document length
-            #scores[i] /= words_considered
-
-            if self.debug:
-                print('\n' if i+1 == len(self.xkcds) else '\r', end='')
-
-        topic_vec = self.word_vectors[self.word_index[topic],:]
-
-        for i in range(len(self.xkcds)):
-            scores[i] = topic_vec.dot(doc_vectors[:,i]) / (numpy.linalg.norm(topic_vec) * numpy.linalg.norm(doc_vectors[:,i]))
-        results = numpy.argpartition(-scores, self.num_results)[:self.num_results]
-        return results + 1
-
-    def similarity(self, word1, word2):
-        """
-        Uses the trained vector space model to compute similarity between two words
-        """
-        word1 = self.stemmer.stem(word1.lower())
-        word2 = self.stemmer.stem(word2.lower())
-        if word1 not in self.word_index:
-            print("Warning: unrecognized word {}".format(word1))
-            word1 = "<UNK>"
-        if word2 not in self.word_index:
-            print("Warning: unrecognized word {}".format(word2))
-            word2 = "<UNK>"
-        return self._stemmed_similarity(word1, word2)
-
-    def _stemmed_similarity(self, word1, word2):
-        index1 = self.word_index[word1]
-        index2 = self.word_index[word2]
-        vector1 = self.word_vectors[index1,:]
-        vector2 = self.word_vectors[index2,:]
-        return vector1.dot(vector2) / (numpy.linalg.norm(vector1) * numpy.linalg.norm(vector2))
-
-    def _build_vocab(self, training_data):
-        """
-        Construct a vocabulary from the given training data
-        """
-        words_encountered = FreqDist()
-        for text in training_data:
-            tokens = word_tokenize(text)
-            words_encountered.update([self.stemmer.stem(word.lower()) for word in tokens if re.search("[A-Za-z0-9]", word) is not None])
-        result = list(v[0] for v in words_encountered.most_common(int(words_encountered.B() * self.vocab_ratio)))
-        # add the unknown word token
-        result.append("<UNK>")
-        return result
-
     def _build_coocurrence_matrix(self, training_data):
         """
         build a word-document co-ocurrence matrix with the given training data.
         """
         if self.debug:
-            print("Building co-occurence matrix, please wait...")
-        # co-occurence matrix is indexed by (word,document)
+            print("Building co-occurrence matrix, please wait...")
+        # co-occurrence matrix is indexed by (word,document)
         co_matrix = numpy.zeros([len(self.vocab), len(training_data)])
         for td_idx in range(len(training_data)):
             text = training_data[td_idx]
@@ -227,6 +228,92 @@ class TfIdfXkcdFinder(AbstractXkcdFinder):
                 if re.search("[A-Za-z0-9]", clean_token) is not None:
                     word_idx = self.word_index[clean_token]
                     co_matrix[word_idx, td_idx] += 1
+        return co_matrix
+
+class PPMIXkcdFinder(VectorSimilarityXkcdFinder):
+    """
+    XkcdFinder implementation which computes an xkcd's similarity score using
+    a Positive Pointwise Mutual Information (PPMI) weighted term-term vector
+    space model.
+    """
+
+    def __init__(self, vocab=None, vocab_ratio=0.6, num_results=20, window_size=10, debug=False):
+        self.stemmer = PorterStemmer()
+        self.vocab = vocab
+        self.vocab_ratio = vocab_ratio
+        self.num_results = num_results
+        self.window_size = window_size
+        self.debug = debug
+        self.xkcds = None
+
+    def train(self, training_data):
+        """
+        Trains this finders vector space model on the given training data.
+        Training data is expected to come in the form of a list of strings.
+        """
+
+        # first, build a vocabulary if we were not given one
+        if not self.vocab:
+            if self.debug:
+                print("Building vocabulary, please wait...")
+            self.vocab = self._build_vocab(training_data)
+
+        # create a map from vocabulary words to indices in vocabulary, allowing constant-time
+        # conversion of words to indices in the vocabulary (allowing quicker lookup in the
+        # co-ocurrence matrix)
+        self.word_index = {}
+        for i in range(len(self.vocab)):
+            self.word_index[self.vocab[i]] = i
+
+        # grab a list of all xkcds as strings. Use the cached version if one exists
+        if not self.xkcds:
+            if self.debug:
+                print("Retrieving xkcds, please wait...")
+            self.xkcds = get_all_xkcds()
+
+        co_matrix = self._build_coocurrence_matrix(training_data)
+
+        # weight the co-occurrence matrix using PPMI weighting
+        if self.debug:
+            print("Performing PPMI weighting, please wait...")
+        # initialize vector matrix with joint probabilities
+        self.word_vectors = co_matrix / numpy.sum(co_matrix)
+        # precompute probabilities for each word and context
+        word_probs = numpy.sum(co_matrix, axis=1) / numpy.sum(co_matrix)
+        context_probs = numpy.sum(co_matrix, axis=0) / numpy.sum(co_matrix)
+        # divide each joint probability by the probability of its word...
+        self.word_vectors /= word_probs.reshape(-1,1)
+        # ..and its context
+        self.word_vectors /= context_probs
+        # finally, take the log (floored to 0) of each cell to get the PPMI
+        self.word_vectors = numpy.maximum(numpy.log(self.word_vectors), 0)
+
+        if self.debug:
+            print("Training completed")
+
+    def _build_coocurrence_matrix(self, training_data):
+        """
+        Construct a term-term matrix for use in developing the vector space model.
+        """
+        if self.debug:
+            print("Building co-occurrence matrix, please wait...")
+        # co-occurrence matrix is indexed by (word, context)
+        # initialize the matrix to all 1's to implement add-1 smoothing.
+        co_matrix = numpy.ones([len(self.vocab), len(self.vocab)])
+        for text in training_data:
+            tokens = word_tokenize(text)
+            # iterate over contexts in this document
+            for i in range(self.window_size, len(tokens)-self.window_size-1):
+                context = self.stemmer.stem(tokens[i].lower())
+                if context not in self.word_index:
+                    context = "<UNK>"
+                context_idx = self.word_index[context]
+                for j in range(i-self.window_size, i+self.window_size+1):
+                    word = self.stemmer.stem(tokens[j].lower())
+                    if word not in self.word_index:
+                        word = "<UNK>"
+                    word_idx = self.word_index[word]
+                    co_matrix[word_idx, context_idx] += 1
         return co_matrix
 
 def evaluate(finder, searches, labeled_data):

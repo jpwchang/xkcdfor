@@ -108,3 +108,6 @@ if __name__ == '__main__':
     tfidf = xkcdfinders.TfIdfXkcdFinder(vocab=vocab,debug=True)
     tfidf.train(train)
     xkcdfinders.evaluate(tfidf, topics, td)
+    print("Testing PPMI system...")
+    ppmi = xkcdfinders.PPMIXkcdFinder(vocab=vocab, debug=True)
+    ppmi.train(train)
