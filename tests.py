@@ -9,6 +9,8 @@ import re
 
 # for a list of words seen in training data, what percentage of them do we want in the vocab?
 VOCAB_RATIO = 0.6
+# how many results do we want to include?
+NUM_RESULTS = 50
 
 topics = ["physics",
           "math",
@@ -102,12 +104,13 @@ if __name__ == '__main__':
     train = get_training_data(Path("data"))
     vocab = build_vocab(train)
     print("Testing baseline system...")
-    baseline = xkcdfinders.TextualSearchXkcdFinder(debug=True)
+    baseline = xkcdfinders.TextualSearchXkcdFinder(num_results=NUM_RESULTS, debug=True)
     xkcdfinders.evaluate(baseline, topics, td)
     print("Testing tf-idf system...")
-    tfidf = xkcdfinders.TfIdfXkcdFinder(vocab=vocab,debug=True)
+    tfidf = xkcdfinders.TfIdfXkcdFinder(vocab=vocab, num_results=NUM_RESULTS, debug=True)
     tfidf.train(train)
     xkcdfinders.evaluate(tfidf, topics, td)
     print("Testing PPMI system...")
-    ppmi = xkcdfinders.PPMIXkcdFinder(vocab=vocab, debug=True)
+    ppmi = xkcdfinders.PPMIXkcdFinder(vocab=vocab, num_results=NUM_RESULTS, debug=True)
     ppmi.train(train)
+    xkcdfinders.evaluate(ppmi, topics, td)
